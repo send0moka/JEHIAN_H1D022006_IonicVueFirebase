@@ -1,0 +1,1145 @@
+src/components/InputModal.vue:
+<template>
+  <ion-modal 
+    :is-open="isOpen" 
+    @did-dismiss="handleClose"
+  >
+    <ion-header>
+      <ion-toolbar>
+        <ion-title>{{ editingId ? "Edit" : "Add" }} Todo</ion-title>
+        <ion-buttons slot="start">
+          <ion-button @click="handleClose">
+            <ion-icon :icon="close"></ion-icon>
+          </ion-button>
+        </ion-buttons>
+      </ion-toolbar>
+    </ion-header>
+    <ion-content>
+      <ion-item>
+        <ion-input
+          v-model="localTodo.title"
+          label="Title"
+          label-placement="floating"
+          placeholder="Enter Title"
+        ></ion-input>
+      </ion-item>
+      <ion-item>
+        <ion-textarea
+          v-model="localTodo.description"
+          label="Description"
+          label-placement="floating"
+          placeholder="Enter Description"
+          :autogrow="true"
+          :rows="3"
+        ></ion-textarea>
+      </ion-item>
+      <ion-row>
+        <ion-col>
+          <ion-button
+            type="button"
+            @click="handleSubmit"
+            shape="round"
+            color="primary"
+            expand="block"
+          >
+            {{ editingId ? "Edit" : "Add" }} Todo
+          </ion-button>
+        </ion-col>
+      </ion-row>
+    </ion-content>
+  </ion-modal>
+</template>
+
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+import {
+  IonModal,
+  IonHeader,
+  IonToolbar,
+  IonTitle,
+  IonButtons,
+  IonButton,
+  IonIcon,
+  IonInput,
+  IonRow,
+  IonCol,
+  IonItem,
+  IonContent,
+  IonTextarea,
+} from "@ionic/vue"
+import { close } from "ionicons/icons"
+import { Todo } from "@/utils/firestore"
+
+const props = defineProps<{
+  isOpen: boolean
+  initialTodo?: Partial<Omit<Todo, "id" | "createdAt" | "updatedAt" | "status">>
+  editingId?: string | null
+}>()
+
+const emit = defineEmits<{
+  close: []
+  submit: [todo: Omit<Todo, "id" | "createdAt" | "updatedAt" | "status">]
+}>()
+
+const localTodo = ref({
+  title: props.initialTodo?.title || '',
+  description: props.initialTodo?.description || ''
+})
+
+watch(() => props.initialTodo, (newTodo) => {
+  localTodo.value = {
+    title: newTodo?.title || '',
+    description: newTodo?.description || ''
+  }
+}, { immediate: true })
+
+const handleClose = () => {
+  emit('close')
+}
+
+const handleSubmit = () => {
+  emit('submit', {
+    title: localTodo.value.title,
+    description: localTodo.value.description
+  })
+}
+</script>
+
+src/components/TabsMenu.vue:
+<template>
+  <ion-tabs>
+    <ion-router-outlet></ion-router-outlet>
+    <ion-tab-bar slot="bottom">
+      <ion-tab-button tab="home" href="/home" layout="icon-top">
+        <ion-icon :icon="home"></ion-icon>
+        <ion-label>Home</ion-label>
+      </ion-tab-button>
+      <ion-tab-button tab="profile" href="/profile" layout="icon-top">
+        <ion-icon :icon="person"></ion-icon>
+        <ion-label>Profile</ion-label>
+      </ion-tab-button>
+    </ion-tab-bar>
+  </ion-tabs>
+</template>
+
+<script setup lang="ts">
+import {
+  IonTabs,
+  IonRouterOutlet,
+  IonTabBar,
+  IonTabButton,
+  IonIcon,
+  IonLabel,
+} from "@ionic/vue"
+import { home, person } from "ionicons/icons"
+</script>
+
+src/router/index.ts:
+import { createRouter, createWebHistory } from "@ionic/vue-router"
+import { RouteRecordRaw } from "vue-router"
+import HomePage from "@/views/HomePage.vue"
+import LoginPage from "@/views/LoginPage.vue"
+import { useAuthStore } from "@/stores/auth"
+import ProfilePage from "@/views/ProfilePage.vue"
+import { onAuthStateChanged } from "firebase/auth"
+import { auth } from "@/utils/firebase"
+
+const routes: Array<RouteRecordRaw> = [
+  {
+    path: "/",
+    redirect: "/login",
+  },
+  {
+    path: "/login",
+    name: "login",
+    component: LoginPage,
+    meta: {
+      isAuth: false,
+    },
+  },
+  {
+    path: "/home",
+    name: "home",
+    component: HomePage,
+    meta: {
+      isAuth: true,
+    },
+  },
+  {
+    path: "/profile",
+    name: "profile",
+    component: ProfilePage,
+    meta: {
+      isAuth: true,
+    },
+  },
+]
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes,
+})
+
+router.beforeEach(async (to, from, next) => {
+  const authStore = useAuthStore()
+
+  if (authStore.user === null) {
+    await new Promise<void>((resolve) => {
+      const unsubscribe = onAuthStateChanged(auth, () => {
+        resolve()
+        unsubscribe()
+      })
+    })
+  }
+
+  if (to.path === "/login" && authStore.isAuth) {
+    next("/home")
+  } else if (to.meta.isAuth && !authStore.isAuth) {
+    next("/login")
+  } else {
+    next()
+  }
+})
+
+export default router
+
+src/stores/auth.ts:
+import { defineStore } from "pinia"
+import { ref, computed } from "vue"
+import router from "@/router"
+import { auth } from "@/utils/firebase"
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithCredential,
+  signOut,
+  User,
+} from "firebase/auth"
+import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth"
+import { alertController } from "@ionic/vue"
+
+export const useAuthStore = defineStore("auth", () => {
+  const user = ref<User | null>(null)
+  const isAuth = computed(() => user.value !== null)
+  const loginWithGoogle = async () => {
+    try {
+      await GoogleAuth.initialize({
+        clientId: "672708876525-hvjc1tl56mtmonk7ekpvt4g4i18ud19o.apps.googleusercontent.com",
+        scopes: ["profile", "email"],
+        grantOfflineAccess: true,
+      })
+      const googleUser = await GoogleAuth.signIn()
+      const idToken = googleUser.authentication.idToken
+      const credential = GoogleAuthProvider.credential(idToken)
+      const result = await signInWithCredential(auth, credential)
+      user.value = result.user
+      router.push("/home")
+    } catch (error) {
+      console.error("Google sign-in error:", error)
+      const alert = await alertController.create({
+        header: "Login Gagal!",
+        message: "Terjadi kesalahan saat login dengan Google. Coba lagi.",
+        buttons: ["OK"],
+      })
+      await alert.present()
+      throw error
+    }
+  }
+  const logout = async () => {
+    try {
+      await signOut(auth)
+      await GoogleAuth.signOut()
+      user.value = null
+      router.replace("/login")
+    } catch (error) {
+      console.error("Sign-out error:", error)
+      throw error
+    }
+  }
+  onAuthStateChanged(auth, (currentUser) => {
+    user.value = currentUser
+  })
+  return { user, isAuth, loginWithGoogle, logout }
+})
+
+src/utils/firebase.ts:
+import { initializeApp } from "firebase/app"
+import { getAuth, GoogleAuthProvider } from "firebase/auth"
+import { getFirestore } from "firebase/firestore"
+
+const firebaseConfig = {
+  apiKey: "AIzaSyByJAOIYNStRtSTCzXHmmRKcD9ICMgIKto",
+  authDomain: "vue-firebase-c8467.firebaseapp.com",
+  projectId: "vue-firebase-c8467",
+  storageBucket: "vue-firebase-c8467.firebasestorage.app",
+  messagingSenderId: "672708876525",
+  appId: "1:672708876525:web:31275471628616ae4ed4e4",
+}
+
+const firebase = initializeApp(firebaseConfig)
+const auth = getAuth(firebase)
+const googleProvider = new GoogleAuthProvider()
+const db = getFirestore(firebase)
+
+export { auth, googleProvider, db }
+
+src/utils/firestore.ts:
+import { auth, db } from "./firebase"
+import {
+  collection,
+  addDoc,
+  getDocs,
+  doc,
+  updateDoc,
+  deleteDoc,
+  query,
+  orderBy,
+  Timestamp,
+} from "firebase/firestore"
+
+export interface Todo {
+  id?: string
+  title: string
+  description: string
+  status: boolean
+  createdAt: Timestamp
+  updatedAt: Timestamp
+}
+
+export const firestoreService = {
+  getTodoRef() {
+    const uid = auth.currentUser?.uid
+    if (!uid) throw new Error("User not authenticated")
+    return collection(db, "users", uid, "todos")
+  },
+
+  async addTodo(todo: Omit<Todo, "id">) {
+    try {
+      const todoRef = this.getTodoRef()
+      const docRef = await addDoc(todoRef, {
+        ...todo,
+        status: false,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      })
+      return docRef.id
+    } catch (error) {
+      console.error("Error Tambah Todo:", error)
+      throw error
+    }
+  },
+
+  async getTodos(): Promise<Todo[]> {
+    try {
+      const todoRef = this.getTodoRef()
+      const q = query(todoRef, orderBy("updatedAt", "desc"))
+      const snapshot = await getDocs(q)
+      return snapshot.docs.map(
+        (doc) =>
+          ({
+            id: doc.id,
+            ...doc.data(),
+          } as Todo)
+      )
+    } catch (error) {
+      console.error("Error Get Todos:", error)
+      throw error
+    }
+  },
+
+  async updateTodo(id: string, todo: Partial<Todo>) {
+    try {
+      const todoRef = this.getTodoRef()
+      const docRef = doc(todoRef, id)
+      await updateDoc(docRef, {
+        ...todo,
+        updatedAt: Timestamp.now(),
+      })
+    } catch (error) {
+      console.error("Error Update Todo:", error)
+      throw error
+    }
+  },
+
+  async deleteTodo(id: string) {
+    try {
+      const todoRef = this.getTodoRef()
+      const docRef = doc(todoRef, id)
+      await deleteDoc(docRef)
+    } catch (error) {
+      console.error("Error Delete Todo:", error)
+      throw error
+    }
+  },
+
+  async updateStatus(id: string, status: boolean) {
+    try {
+      const todoRef = this.getTodoRef()
+      const docRef = doc(todoRef, id)
+      await updateDoc(docRef, { status: status, updatedAt: Timestamp.now() })
+    } catch (error) {
+      console.error("Error Update Status:", error)
+      throw error
+    }
+  },
+}
+
+src/views/HomePage.vue:
+<template>
+  <ion-page>
+    <ion-header :translucent="true">
+      <ion-toolbar>
+        <ion-title>Home</ion-title>
+      </ion-toolbar>
+    </ion-header>
+    <ion-content :fullscreen="true">
+      <ion-refresher
+        slot="fixed"
+        :pull-factor="0.5"
+        :pull-min="100"
+        :pull-max="200"
+        @ionRefresh="handleRefresh($event)"
+      >
+        <ion-refresher-content></ion-refresher-content>
+      </ion-refresher>
+      <div class="scrollable-container">
+        <ion-list>
+          <ion-item-sliding
+            v-for="todo in activeTodos"
+            :key="todo.id"
+            :ref="(el) => setItemRef(el, todo.id!)"
+          >
+            <ion-item-options side="start" @ionSwipe="handleDelete(todo)">
+              <ion-item-option
+                color="danger"
+                expandable
+                @click="handleDelete(todo)"
+              >
+                <ion-icon
+                  slot="icon-only"
+                  :icon="trash"
+                  size="large"
+                ></ion-icon>
+              </ion-item-option>
+            </ion-item-options>
+
+            <ion-item>
+              <ion-card>
+                <ion-card-header>
+                  <ion-card-title class="ion-text-wrap limited-text">
+                    {{ todo.title }}
+                  </ion-card-title>
+                  <ion-card-subtitle class="limited-text">
+                    {{ todo.description }}
+                  </ion-card-subtitle>
+                </ion-card-header>
+
+                <ion-card-content>
+                  <ion-badge>{{ getRelativeTime(todo.updatedAt) }}</ion-badge>
+                </ion-card-content>
+              </ion-card>
+            </ion-item>
+
+            <ion-item-options side="end" @ionSwipe="handleStatus(todo)">
+              <ion-item-option @click="handleEdit(todo)">
+                <ion-icon
+                  slot="icon-only"
+                  :icon="create"
+                  size="large"
+                ></ion-icon>
+              </ion-item-option>
+              <ion-item-option
+                color="success"
+                expandable
+                @click="handleStatus(todo)"
+              >
+                <ion-icon
+                  slot="icon-only"
+                  :icon="checkmarkCircle"
+                  color="light"
+                  size="large"
+                ></ion-icon>
+              </ion-item-option>
+            </ion-item-options>
+          </ion-item-sliding>
+          <ion-item v-if="activeTodos.length === 0" class="ion-text-center">
+            <ion-label>No active todos</ion-label>
+          </ion-item>
+        </ion-list>
+      </div>
+
+      <ion-item class="accordion-container">
+        <ion-accordion-group>
+          <ion-accordion value="first">
+            <ion-item slot="header" color="light">
+              <ion-label class="ion-text-center">Completed</ion-label>
+            </ion-item>
+            <div slot="content" class="scrollable-container">
+              <ion-list>
+                <ion-item-sliding
+                  v-for="todo in completedTodos"
+                  :key="todo.id"
+                  :ref="(el) => setItemRef(el, todo.id!)"
+                >
+                  <ion-item-options side="start" @ionSwipe="handleDelete(todo)">
+                    <ion-item-option
+                      color="danger"
+                      expandable
+                      @click="handleDelete(todo)"
+                    >
+                      <ion-icon
+                        slot="icon-only"
+                        :icon="trash"
+                        size="large"
+                      ></ion-icon>
+                    </ion-item-option>
+                  </ion-item-options>
+
+                  <ion-item>
+                    <ion-card>
+                      <ion-card-header>
+                        <ion-card-title class="ion-text-wrap limited-text">{{
+                          todo.title
+                        }}</ion-card-title>
+                        <ion-card-subtitle class="limited-text">{{
+                          todo.description
+                        }}</ion-card-subtitle>
+                      </ion-card-header>
+
+                      <ion-card-content>
+                        <ion-badge>{{
+                          getRelativeTime(todo.updatedAt)
+                        }}</ion-badge>
+                      </ion-card-content>
+                    </ion-card>
+                  </ion-item>
+
+                  <ion-item-options side="end" @ionSwipe="handleStatus(todo)">
+                    <ion-item-option @click="handleEdit(todo)">
+                      <ion-icon
+                        slot="icon-only"
+                        :icon="create"
+                        size="large"
+                      ></ion-icon>
+                    </ion-item-option>
+                    <ion-item-option
+                      color="warning"
+                      expandable
+                      @click="handleStatus(todo)"
+                    >
+                      <ion-icon
+                        slot="icon-only"
+                        :icon="close"
+                        color="light"
+                        size="large"
+                      ></ion-icon>
+                    </ion-item-option>
+                  </ion-item-options>
+                </ion-item-sliding>
+                <ion-item
+                  v-if="completedTodos.length === 0"
+                  class="ion-text-center"
+                >
+                  <ion-label>No completed todos</ion-label>
+                </ion-item>
+              </ion-list>
+            </div>
+          </ion-accordion>
+        </ion-accordion-group>
+      </ion-item>
+      <ion-fab vertical="bottom" horizontal="end" slot="fixed">
+        <ion-fab-button @click="openModal">
+          <ion-icon :icon="add" size="large"></ion-icon>
+        </ion-fab-button>
+      </ion-fab>
+      <InputModal
+        :is-open="isOpenModal"
+        @close="closeModal"
+        @submit="handleSubmit"
+        :initial-todo="todo"
+        :editing-id="editingId"
+      />
+    </ion-content>
+  </ion-page>
+</template>
+
+<script setup lang="ts">
+import {
+  IonContent,
+  IonHeader,
+  IonPage,
+  IonTitle,
+  IonToolbar,
+  IonItem,
+  IonItemOption,
+  IonItemOptions,
+  IonItemSliding,
+  IonCard,
+  IonCardHeader,
+  IonCardTitle,
+  IonCardSubtitle,
+  IonCardContent,
+  IonBadge,
+  IonIcon,
+  IonFab,
+  IonFabButton,
+  IonAccordion,
+  IonAccordionGroup,
+  IonLabel,
+  IonList,
+  loadingController,
+  IonRefresher,
+  IonRefresherContent,
+  toastController,
+} from "@ionic/vue"
+import {
+  add,
+  checkmarkCircle,
+  close,
+  create,
+  trash,
+  closeCircle,
+  warningOutline,
+} from "ionicons/icons"
+import { onMounted, ref, computed, onUnmounted } from "vue"
+import { firestoreService, type Todo } from "@/utils/firestore"
+import { formatDistanceToNow } from "date-fns"
+import InputModal from "@/components/InputModal.vue"
+
+const isOpenModal = ref(false)
+const openModal = () => {
+  isOpenModal.value = true
+}
+const closeModal = () => {
+  isOpenModal.value = false
+  editingId.value = null
+  todo.value = { title: "", description: "" }
+}
+const editingId = ref<string | null>(null)
+const todos = ref<Todo[]>([])
+const todo = ref<Omit<Todo, "id" | "createdAt" | "updatedAt" | "status">>({
+  title: "",
+  description: "",
+})
+const activeTodos = computed(() => todos.value.filter((todo) => !todo.status))
+const completedTodos = computed(() => todos.value.filter((todo) => todo.status))
+const itemRefs = ref<Map<string, HTMLIonItemSlidingElement>>(new Map())
+let intervalId: any
+const timeUpdateTrigger = ref(0)
+
+const setItemRef = (el: any, id: string) => {
+  if (el) {
+    itemRefs.value.set(id, el.$el)
+  }
+}
+
+const showToast = async (
+  message: string,
+  color: string = "success",
+  icon: string = checkmarkCircle
+) => {
+  const toast = await toastController.create({
+    message,
+    duration: 2000,
+    color,
+    position: "top",
+    icon,
+  })
+  await toast.present()
+}
+
+const getRelativeTime = (date: any) => {
+  timeUpdateTrigger.value
+  try {
+    const jsDate = date?.toDate ? date.toDate() : new Date(date)
+    return formatDistanceToNow(jsDate, { addSuffix: true })
+  } catch (error) {
+    return "Invalid date"
+  }
+}
+
+const handleRefresh = async (event: any) => {
+  try {
+    await loadTodos(false)
+  } catch (error) {
+    console.error("Error refreshing:", error)
+  } finally {
+    event.target.complete()
+  }
+}
+
+const handleSubmit = async (
+  todoItem: Omit<Todo, "id" | "createdAt" | "updatedAt" | "status">
+) => {
+  if (!todoItem.title) {
+    await showToast("Title is required", "warning", warningOutline)
+    return
+  }
+  try {
+    if (editingId.value) {
+      await firestoreService.updateTodo(editingId.value, todoItem as Todo)
+      await showToast("Todo updated successfully", "success", checkmarkCircle)
+    } else {
+      await firestoreService.addTodo(todoItem as Todo)
+      await showToast("Todo added successfully", "success", checkmarkCircle)
+    }
+    loadTodos()
+    closeModal()
+  } catch (error) {
+    await showToast("An error occurred", "danger", closeCircle)
+    console.error(error)
+  } finally {
+    editingId.value = null
+  }
+}
+
+const loadTodos = async (isLoading = true) => {
+  let loading
+  if (isLoading) {
+    loading = await loadingController.create({
+      message: "Loading...",
+    })
+    await loading.present()
+  }
+
+  try {
+    todos.value = await firestoreService.getTodos()
+  } catch (error) {
+    console.error(error)
+  } finally {
+    if (loading) {
+      await loading.dismiss()
+    }
+  }
+}
+
+const handleEdit = async (editTodo: Todo) => {
+  const slidingItem = itemRefs.value.get(editTodo.id!)
+  await slidingItem?.close()
+
+  editingId.value = editTodo.id!
+  todo.value = {
+    title: editTodo.title,
+    description: editTodo.description,
+  }
+  isOpenModal.value = true
+}
+
+const handleDelete = async (deleteTodo: Todo) => {
+  try {
+    await firestoreService.deleteTodo(deleteTodo.id!)
+    await showToast("Todo deleted successfully", "success", checkmarkCircle)
+    loadTodos()
+  } catch (error) {
+    await showToast("Failed to delete todo", "danger", closeCircle)
+    console.error(error)
+  }
+}
+
+const handleStatus = async (statusTodo: Todo) => {
+  const slidingItem = itemRefs.value.get(statusTodo.id!)
+  await slidingItem?.close()
+  try {
+    await firestoreService.updateStatus(statusTodo.id!, !statusTodo.status)
+    await showToast(
+      `Todo marked as ${!statusTodo.status ? "completed" : "active"}`,
+      "success",
+      checkmarkCircle
+    )
+    loadTodos()
+  } catch (error) {
+    await showToast("Failed to update status", "danger", closeCircle)
+    console.error(error)
+  }
+}
+
+onMounted(() => {
+  loadTodos()
+  intervalId = setInterval(() => {
+    timeUpdateTrigger.value++
+  }, 60000)
+})
+
+onUnmounted(() => {
+  clearInterval(intervalId)
+})
+</script>
+
+<style scoped>
+ion-card,
+ion-accordion-group {
+  width: 100%;
+  /* Tambahkan margin agar tidak memenuhi seluruh area */
+  margin: 0;
+  /* Tambahkan pointer cursor */
+  cursor: pointer;
+}
+
+/* Styling untuk item sliding */
+ion-item-sliding {
+  background: transparent;
+}
+
+/* Styling untuk ion-item di dalam sliding */
+ion-item {
+  --padding-start: 0;
+  --inner-padding-end: 0;
+  --background: transparent;
+  overflow: visible;
+}
+
+/* Pastikan card tidak menutupi item options */
+ion-item-options {
+  z-index: 2;
+}
+
+ion-fab {
+  margin: 25px;
+}
+
+.limited-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+}
+
+ion-card-title.limited-text {
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+ion-card-subtitle.limited-text {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.scrollable-container {
+  max-height: 80vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.accordion-container {
+  --padding-start: 0;
+  --inner-padding-end: 0;
+}
+
+.scrollable-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scrollable-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.scrollable-container::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.scrollable-container::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+</style>
+
+src/views/LoginPage.vue:
+<template>
+  <ion-page>
+    <ion-content :fullscreen="true">
+      <div id="container">
+        <ion-text style="margin-bottom: 20px; text-align: center">
+          <h1>Praktikum Pemrograman Mobile</h1>
+        </ion-text>
+        <ion-button @click="login" color="light">
+          <ion-icon slot="start" :icon="logoGoogle"></ion-icon>
+          <ion-label>Sign In with Google</ion-label>
+        </ion-button>
+      </div>
+    </ion-content>
+  </ion-page>
+</template>
+
+<script setup lang="ts">
+import {
+  IonContent,
+  IonPage,
+  IonButton,
+  IonIcon,
+  IonText,
+  IonLabel,
+} from "@ionic/vue"
+import { logoGoogle } from "ionicons/icons"
+import { useAuthStore } from "@/stores/auth"
+
+const authStore = useAuthStore()
+const login = async () => {
+  await authStore.loginWithGoogle()
+}
+</script>
+
+<style>
+#container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+}
+
+ion-button {
+  --border-radius: 8px;
+}
+</style>
+
+src/views/ProfilePage.vue:
+<template>
+  <ion-page>
+    <ion-header :translucent="true">
+      <ion-toolbar>
+        <ion-title>Profile</ion-title>
+        <ion-button
+          slot="end"
+          fill="clear"
+          @click="logout"
+          style="--color: gray"
+        >
+          <ion-icon slot="end" :icon="exit"></ion-icon>
+          <ion-label>Logout</ion-label>
+        </ion-button>
+      </ion-toolbar>
+    </ion-header>
+    <ion-content :fullscreen="true">
+      <div id="avatar-container">
+        <ion-avatar>
+          <img alt="Avatar" :src="userPhoto" @error="handleImageError" />
+        </ion-avatar>
+      </div>
+      <ion-list>
+        <ion-item>
+          <ion-input
+            label="Nama"
+            :value="user?.displayName"
+            :readonly="true"
+          ></ion-input>
+        </ion-item>
+        <ion-item>
+          <ion-input
+            label="Email"
+            :value="user?.email"
+            :readonly="true"
+          ></ion-input>
+        </ion-item>
+      </ion-list>
+      <TabsMenu />
+    </ion-content>
+  </ion-page>
+</template>
+
+<script setup lang="ts">
+import {
+  IonContent,
+  IonHeader,
+  IonPage,
+  IonTitle,
+  IonToolbar,
+  IonInput,
+  IonItem,
+  IonList,
+  IonLabel,
+  IonIcon,
+  IonButton,
+  IonAvatar,
+} from "@ionic/vue"
+import { exit } from "ionicons/icons"
+import { computed, ref } from "vue"
+import TabsMenu from "@/components/TabsMenu.vue"
+import { useAuthStore } from "@/stores/auth"
+
+const authStore = useAuthStore()
+const user = computed(() => authStore.user)
+
+const logout = () => {
+  authStore.logout()
+}
+
+const userPhoto = ref(
+  user.value?.photoURL || "https://ionicframework.com/docs/img/demos/avatar.svg"
+)
+
+function handleImageError() {
+  userPhoto.value = "https://ionicframework.com/docs/img/demos/avatar.svg"
+}
+</script>
+
+<style scoped>
+#avatar-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 20px 0;
+}
+
+#avatar-icon {
+  width: 80px;
+  height: 80px;
+}
+</style>
+
+src/App.vue:
+<template>
+  <ion-app>
+    <ion-router-outlet></ion-router-outlet>
+    <TabsMenu v-if="showTabs" />
+  </ion-app>
+</template>
+
+<script setup lang="ts">
+import { IonApp, IonRouterOutlet } from "@ionic/vue"
+import { computed } from "vue"
+import { useRoute } from "vue-router"
+import TabsMenu from "@/components/TabsMenu.vue"
+
+const route = useRoute()
+const authRoutes = ["/", "/login"]
+const showTabs = computed(() => {
+  return !authRoutes.includes(route.path)
+})
+</script>
+
+contoh readme:
+# Tugas 9 - Pertemuan 10
+
+Jehian H1D022006 Shift C->D
+
+# Feats
+
+### 1. Konfigurasi Firebase Project
+
+<img src="docs/settings.png" height="300">
+
+*Screenshot ini menunjukkan halaman pengaturan project Firebase yang berisi konfigurasi dasar seperti Project ID, Web API Key, dan informasi konfigurasi lainnya yang diperlukan untuk integrasi dengan aplikasi.*
+
+### 2. Setup Google Cloud OAuth Client ID
+
+<img src="docs/api.png" height="300">
+
+*Screenshot ini memperlihatkan halaman Google Cloud Console dimana OAuth Client ID dibuat dan dikonfigurasi untuk memungkinkan autentikasi Google dalam aplikasi.*
+
+### 3. Implementasi Login Page
+
+<img src="docs/login.png" height="300">
+
+*Tampilan halaman login aplikasi yang menampilkan tombol "Sign In with Google" untuk memulai proses autentikasi.*
+
+### 4. Proses Login Google
+
+<img src="docs/select.png" height="300">
+
+*Popup pemilihan akun Google yang muncul ketika user menekan tombol login.*
+
+<img src="docs/continue.png" height="300">
+
+*Konfirmasi izin akses yang diminta aplikasi ke akun Google pengguna.*
+
+### 5. Halaman Home
+
+<img src="docs/home.png" height="300">
+
+*Halaman utama aplikasi setelah user berhasil login, menampilkan navigasi dan konten dasar.*
+
+### 6. Halaman Profile
+
+<img src="docs/profile.png" height="300">
+
+*Halaman profil yang menampilkan informasi user yang didapat dari akun Google seperti nama, email, dan foto profil.*
+
+### 7. Firebase Authentication Users
+
+<img src="docs/firebase.png" height="300">
+
+*Panel Firebase Authentication yang menampilkan daftar user yang telah melakukan login ke aplikasi.*
+
+## Alur Kerja Autentikasi
+
+1. **Inisialisasi Firebase dan Google Auth**
+   - Aplikasi dimulai dengan konfigurasi Firebase menggunakan credentials dari Firebase Console
+   - Setup Google Auth provider dengan Client ID dari Google Cloud Console
+
+2. **Proses Login**
+   - User menekan tombol "Sign In with Google"
+   - Aplikasi menginisialisasi Google Auth dengan Client ID yang telah dikonfigurasi
+   - Popup pemilihan akun Google ditampilkan
+   - User memilih akun dan memberikan izin
+   - Token autentikasi diterima dari Google
+   - Token diverifikasi oleh Firebase
+   - User data disimpan di Firebase Authentication
+
+3. **Manajemen State dan Data User**
+   - Data user disimpan menggunakan Pinia store
+   - Profile picture, nama, dan email diambil dari data Google account
+   - State autentikasi dimonitor menggunakan `onAuthStateChanged`
+   - Router guard memproteksi halaman yang membutuhkan autentikasi
+
+4. **Implementasi Teknis**
+   - Gunakan `@codetrix-studio/capacitor-google-auth` untuk handle Google Sign-In
+   - Implementasi error handling untuk kasus gagal login
+   - Setup router navigation guard untuk proteksi route
+   - Implementasi logout function untuk membersihkan state dan redirect ke login page
+
+## Kode Kunci
+
+### Setup Firebase
+```typescript
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  // ...other config
+};
+
+const firebase = initializeApp(firebaseConfig);
+const auth = getAuth(firebase);
+```
+
+### Login Implementation
+```typescript
+const loginWithGoogle = async () => {
+  try {
+    await GoogleAuth.initialize({
+      clientId: "YOUR_CLIENT_ID",
+      scopes: ["profile", "email"],
+      grantOfflineAccess: true,
+    });
+    const googleUser = await GoogleAuth.signIn();
+    const credential = GoogleAuthProvider.credential(
+      googleUser.authentication.idToken
+    );
+    await signInWithCredential(auth, credential);
+    router.push("/home");
+  } catch (error) {
+    console.error("Google sign-in error:", error);
+    // Handle error
+  }
+};
+```
+
+## Troubleshooting
+
+1. **Client ID Tidak Valid**
+   - Pastikan Client ID yang digunakan sesuai dengan yang ada di Google Cloud Console
+   - Verifikasi Authorized JavaScript origins sudah mencakup URL aplikasi
+
+2. **Popup Blocked**
+   - Pastikan browser tidak memblokir popup untuk domain aplikasi
+   - Handle kasus popup blocked dalam code dengan proper error message
+
+3. **Token Expired**
+   - Implementasi refresh token logic
+   - Handle kasus auto-logout ketika token expired
+
+4. **CORS Issues**
+   - Pastikan domain aplikasi terdaftar di Firebase Console
+   - Verifikasi setting di Google Cloud Console
+
+tolong buatkan readme dengan ss crud + penjelasan dibawah gambarnya, berikan juga penjelasan cara build ionic app ke bentuk apk dengan ss + penjelasan dibawah gambarnya, ada step penambahan your apps android apps di project settings firebase dengan menambahkan sha1 dan sha256, java yang saya gunakan java 17 vendor jetbrains

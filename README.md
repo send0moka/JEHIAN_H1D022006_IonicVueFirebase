@@ -4,130 +4,118 @@ Jehian H1D022006 Shift C->D
 
 # Feats
 
-### 1. Konfigurasi Firebase Project
+### 1. Create Todo
 
-<img src="docs/settings.png" height="300">
+<img src="docs/add.jpg" height="300">
 
-*Screenshot ini menunjukkan halaman pengaturan project Firebase yang berisi konfigurasi dasar seperti Project ID, Web API Key, dan informasi konfigurasi lainnya yang diperlukan untuk integrasi dengan aplikasi.*
+Fitur menambahkan todo baru dengan input title dan description. Klik tombol "+" di pojok kanan bawah untuk membuka modal input. Setelah mengisi, tekan tombol "Add Todo" untuk menyimpan ke Firestore.
 
-### 2. Setup Google Cloud OAuth Client ID
+### 2. Read Todo
 
-<img src="docs/api.png" height="300">
+<img src="docs/home.jpg" height="300">
 
-*Screenshot ini memperlihatkan halaman Google Cloud Console dimana OAuth Client ID dibuat dan dikonfigurasi untuk memungkinkan autentikasi Google dalam aplikasi.*
+Daftar todo ditampilkan dengan dua section: Active Todos dan Completed Todos. Setiap todo menampilkan:
+- Title
+- Description
+- Relative time (e.g., "2 hours ago")
+- Status (active/completed)
 
-### 3. Implementasi Login Page
+### 3. Update Todo
 
-<img src="docs/login.png" height="300">
+<img src="docs/updated.jpg" height="300">
 
-*Tampilan halaman login aplikasi yang menampilkan tombol "Sign In with Google" untuk memulai proses autentikasi.*
+Edit todo dengan cara:
+- Geser todo ke kanan dan klik ikon pensil
+- Modal edit akan terbuka dengan data todo yang dipilih
+- Ubah title atau description
+- Tekan tombol "Edit Todo" untuk menyimpan perubahan
 
-### 4. Proses Login Google
+### 4. Delete Todo
 
-<img src="docs/select.png" height="300">
+<img src="docs/delete.jpg" height="300">
 
-*Popup pemilihan akun Google yang muncul ketika user menekan tombol login.*
+Menghapus todo dengan dua cara:
+- Geser todo ke kiri dan klik ikon tempat sampah
+- Konfirmasi penghapusan akan muncul
+- Todo akan langsung dihapus dari Firestore
 
-<img src="docs/continue.png" height="300">
+### 5. Toggle Todo Status
 
-*Konfirmasi izin akses yang diminta aplikasi ke akun Google pengguna.*
+<img src="docs/menu right.jpg" height="300">
 
-### 5. Halaman Home
+Ubah status todo:
+- Geser todo ke kanan dan klik centang untuk mengubah status
+- Todo akan berpindah antara Active dan Completed
+- Status tersimpan di Firestore dengan timestamp update
 
-<img src="docs/home.png" height="300">
+## Membangun APK dengan Ionic
 
-*Halaman utama aplikasi setelah user berhasil login, menampilkan navigasi dan konten dasar.*
+### Prasyarat
+- Java Development Kit (JDK) 17 (Jetbrains vendor)
+- Node.js dan npm
+- Ionic CLI
+- Android Studio
+- Capacitor
 
-### 6. Halaman Profile
+### Langkah-langkah Build APK
 
-<img src="docs/profile.png" height="300">
-
-*Halaman profil yang menampilkan informasi user yang didapat dari akun Google seperti nama, email, dan foto profil.*
-
-### 7. Firebase Authentication Users
-
-<img src="docs/firebase.png" height="300">
-
-*Panel Firebase Authentication yang menampilkan daftar user yang telah melakukan login ke aplikasi.*
-
-## Alur Kerja Autentikasi
-
-1. **Inisialisasi Firebase dan Google Auth**
-   - Aplikasi dimulai dengan konfigurasi Firebase menggunakan credentials dari Firebase Console
-   - Setup Google Auth provider dengan Client ID dari Google Cloud Console
-
-2. **Proses Login**
-   - User menekan tombol "Sign In with Google"
-   - Aplikasi menginisialisasi Google Auth dengan Client ID yang telah dikonfigurasi
-   - Popup pemilihan akun Google ditampilkan
-   - User memilih akun dan memberikan izin
-   - Token autentikasi diterima dari Google
-   - Token diverifikasi oleh Firebase
-   - User data disimpan di Firebase Authentication
-
-3. **Manajemen State dan Data User**
-   - Data user disimpan menggunakan Pinia store
-   - Profile picture, nama, dan email diambil dari data Google account
-   - State autentikasi dimonitor menggunakan `onAuthStateChanged`
-   - Router guard memproteksi halaman yang membutuhkan autentikasi
-
-4. **Implementasi Teknis**
-   - Gunakan `@codetrix-studio/capacitor-google-auth` untuk handle Google Sign-In
-   - Implementasi error handling untuk kasus gagal login
-   - Setup router navigation guard untuk proteksi route
-   - Implementasi logout function untuk membersihkan state dan redirect ke login page
-
-## Kode Kunci
-
-### Setup Firebase
-```typescript
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
-  projectId: "YOUR_PROJECT_ID",
-  // ...other config
-};
-
-const firebase = initializeApp(firebaseConfig);
-const auth = getAuth(firebase);
+1. Pastikan Dependensi Terinstal
+```bash
+npm install -g @ionic/cli
+npm install
 ```
 
-### Login Implementation
-```typescript
-const loginWithGoogle = async () => {
-  try {
-    await GoogleAuth.initialize({
-      clientId: "YOUR_CLIENT_ID",
-      scopes: ["profile", "email"],
-      grantOfflineAccess: true,
-    });
-    const googleUser = await GoogleAuth.signIn();
-    const credential = GoogleAuthProvider.credential(
-      googleUser.authentication.idToken
-    );
-    await signInWithCredential(auth, credential);
-    router.push("/home");
-  } catch (error) {
-    console.error("Google sign-in error:", error);
-    // Handle error
-  }
-};
+2. Tambahkan Platform Android
+```bash
+ionic cap add android
 ```
 
-## Troubleshooting
+3. Build Proyek Ionic
+```bash
+ionic build
+```
 
-1. **Client ID Tidak Valid**
-   - Pastikan Client ID yang digunakan sesuai dengan yang ada di Google Cloud Console
-   - Verifikasi Authorized JavaScript origins sudah mencakup URL aplikasi
+4. Sync Proyek dengan Capacitor
+```bash
+ionic cap sync android
+```
 
-2. **Popup Blocked**
-   - Pastikan browser tidak memblokir popup untuk domain aplikasi
-   - Handle kasus popup blocked dalam code dengan proper error message
+5. Buka Proyek di Android Studio
+```bash
+ionic cap open android
+```
 
-3. **Token Expired**
-   - Implementasi refresh token logic
-   - Handle kasus auto-logout ketika token expired
+6. Generate Signed APK
+- Buka "Build" > "Generate Signed Bundle / APK"
+- Pilih "APK"
+- Buat Keystore baru atau gunakan yang sudah ada
+- Pilih release configuration
+- APK akan tersimpan di `android/app/build/outputs/apk/release/`
 
-4. **CORS Issues**
-   - Pastikan domain aplikasi terdaftar di Firebase Console
-   - Verifikasi setting di Google Cloud Console
+### Screenshot Proses Build
+
+<img src="docs/build.png" height="300">
+
+*Proses generate signed APK di Android Studio*
+
+## Konfigurasi Firebase untuk Android
+
+### Tambahkan SHA Certificate Fingerprints
+
+1. Generate SHA-1 dan SHA-256
+```bash
+keytool -list -v -keystore ~/.android/debug.keystore
+```
+
+2. Di Firebase Console
+- Masuk ke Project Settings
+- Pilih tab "Your apps"
+- Klik "Add app" dan pilih Android
+- Sesuaikan Package Name dengan file `capacitor.config.ts`
+- Tambahkan SHA-1 dan SHA-256 certificate fingerprints
+
+### Screenshot Konfigurasi
+
+<img src="docs/android.png" height="300">
+
+*Tambahkan SHA fingerprints di Firebase Console*
